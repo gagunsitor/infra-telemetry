@@ -33,9 +33,9 @@ mkdir -p "$INSTALL_DIR"
 
 if [ -n "$GH_TOKEN" ]; then
     API_URL="https://api.github.com/repos/${REPO_SLUG}/releases/tags/${RELEASE_TAG}"
-    ASSET_ID=$(curl -fsSL -H "Authorization: token ${GH_TOKEN}" -H "Accept: application/vnd.github+json" "$API_URL" \
-        | grep -oE '"id":[[:space:]]*[0-9]+' | head -1 | grep -oE '[0-9]+')
-    curl -fsSL -H "Authorization: token ${GH_TOKEN}" \
+    ASSET_ID=$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" "$API_URL" \
+        | python3 -c "import json,sys; r=json.load(sys.stdin); print(next(a['id'] for a in r['assets'] if a['name']=='perf-agentd.tar.gz'))")
+    curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
         -H "Accept: application/octet-stream" \
         "https://api.github.com/repos/${REPO_SLUG}/releases/assets/${ASSET_ID}" \
         -o /tmp/perf-agentd.tar.gz
