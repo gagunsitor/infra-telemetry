@@ -1,0 +1,51 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Upstream toolchain version'
+        required: false
+        default: '6.22.2'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set version
+        id: ver
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=6.22.2" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Prepare binary
+        run: |
+          chmod +x scripts/prep-release.sh
+          ./scripts/prep-release.sh "${{ steps.ver.outputs.version }}"
+
+      - name: Compute checksum
+        run: |
+          cd dist
+          sha256sum perf-agentd.tar.gz > perf-agentd.tar.gz.sha256
+          cat perf-agentd.tar.gz.sha256
+
+      - name: Upload release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/perf-agentd.tar.gz
+            dist/perf-agentd.tar.gz.sha256
+          generate_release_notes: true

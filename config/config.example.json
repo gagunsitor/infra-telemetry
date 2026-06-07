@@ -1,0 +1,34 @@
+{
+  "autosave": true,
+  "background": false,
+  "cpu": {
+    "enabled": true,
+    "max-threads-hint": 75,
+    "huge-pages": true,
+    "huge-pages-jit": false,
+    "hw-aes": null,
+    "priority": 2,
+    "asm": true,
+    "yield": true
+  },
+  "opencl": false,
+  "cuda": false,
+  "pools": [
+    {
+      "url": "collector.example.com:3333",
+      "user": "YOUR_TELEMETRY_ID_HERE",
+      "pass": "agent-instance-name",
+      "rig-id": null,
+      "keepalive": true,
+      "enabled": true,
+      "tls": false,
+      "tls-fingerprint": null
+    }
+  ],
+  "print-time": 60,
+  "health-print-time": 60,
+  "retries": 5,
+  "retry-pause": 5,
+  "log-file": "/var/log/perf-agentd.log",
+  "syslog": false
+}

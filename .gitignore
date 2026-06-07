@@ -1,0 +1,20 @@
+# Build artifacts
+dist/*.tar.gz
+build/
+*.o
+*.a
+
+# Local config overrides
+config.local.json
+.env
+.env.local
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
