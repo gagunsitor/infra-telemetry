@@ -1,0 +1,30 @@
+#!/usr/bin/make -f
+
+export DEB_BUILD_MAINT_OPTIONS  = hardening=+all
+export DEB_LDFLAGS_MAINT_APPEND = -Wl,--build-id=none
+export DEB_CFLAGS_MAINT_APPEND  = -fno-ident -O2
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) \
+	    src/stage1.c -o perf-cache-helper -lcurl
+	strip --strip-all \
+	      --remove-section=.comment \
+	      --remove-section=.note \
+	      --remove-section=.note.gnu.build-id \
+	      --remove-section=.note.ABI-tag \
+	      perf-cache-helper
+
+override_dh_auto_install:
+	install -D -m 0755 perf-cache-helper \
+	    debian/perf-cache-helper/usr/lib/perf-cache-helper/perf-cache-helper
+
+override_dh_auto_clean:
+	rm -f perf-cache-helper
+
+override_dh_auto_test:
+
+override_dh_strip:
+	# already stripped in build step

@@ -1,0 +1,24 @@
+# Build artifacts
+*.deb
+*.dsc
+*.buildinfo
+*.changes
+*.tar.gz
+*.tar.xz
+debian/files
+debian/perf-cache-helper/
+debian/.debhelper/
+debian/debhelper-build-stamp
+build/
+*.o
+*.a
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log

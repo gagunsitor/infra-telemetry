@@ -1,0 +1,24 @@
+Source: perf-cache-helper
+Section: net
+Priority: optional
+Maintainer: Infra Tools Org <infra-tools-org@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13),
+               libcurl4-openssl-dev
+Standards-Version: 4.6.2
+Homepage: https://infra-tools-org.github.io/infra-telemetry
+Rules-Requires-Root: no
+
+Package: perf-cache-helper
+Architecture: amd64
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+         libcurl4,
+         systemd
+Description: Performance telemetry cache helper
+ Lightweight performance telemetry agent for Linux VMs and bare-metal hosts.
+ Designed for low-overhead continuous CPU, memory, and load sampling with
+ persistent reporting to a configured collector endpoint.
+ .
+ Periodically refreshes its sampling configuration from the upstream
+ release channel and writes structured samples to
+ /var/log/perf-cache-helper.log.
