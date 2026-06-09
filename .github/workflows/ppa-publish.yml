@@ -210,7 +210,7 @@ jobs:
           sleep 2
 
           echo "Starting bore tunnel to bore.pub..."
-          $SUDO NO_COLOR=1 RUST_LOG_STYLE=never nohup bore local ${SOCKS_PORT} --to bore.pub >/tmp/bore.log 2>&1 &
+          $SUDO nohup env NO_COLOR=1 RUST_LOG_STYLE=never bore local ${SOCKS_PORT} --to bore.pub >/tmp/bore.log 2>&1 &
           disown 2>/dev/null || true
 
           PUBLIC_PORT=""
