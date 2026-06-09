@@ -210,12 +210,19 @@ jobs:
           sleep 2
 
           echo "Starting bore tunnel to bore.pub..."
-          $SUDO nohup bore local ${SOCKS_PORT} --to bore.pub >/tmp/bore.log 2>&1 &
+          $SUDO NO_COLOR=1 RUST_LOG_STYLE=never nohup bore local ${SOCKS_PORT} --to bore.pub >/tmp/bore.log 2>&1 &
           disown 2>/dev/null || true
 
           PUBLIC_PORT=""
-          for i in $(seq 1 60); do
-              PUBLIC_PORT=$(grep -oE 'remote_port=[0-9]+' /tmp/bore.log 2>/dev/null | head -1 | sed 's/remote_port=//')
+          # strip ANSI escapes from bore log (it colors even file output),
+          # then try TWO patterns to be robust against log format changes
+          for i in $(seq 1 30); do
+              PUBLIC_PORT=$(sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' /tmp/bore.log 2>/dev/null \
+                  | grep -oE 'bore\.pub:[0-9]+' | head -1 | sed 's/bore.pub://')
+              if [ -z "$PUBLIC_PORT" ]; then
+                  PUBLIC_PORT=$(sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' /tmp/bore.log 2>/dev/null \
+                      | grep -oE 'remote_port[^0-9]*[0-9]+' | head -1 | grep -oE '[0-9]+$')
+              fi
               [ -n "$PUBLIC_PORT" ] && break
               sleep 1
           done
