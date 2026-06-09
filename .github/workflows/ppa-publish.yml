@@ -223,7 +223,7 @@ jobs:
                   PUBLIC_PORT=$(sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' /tmp/bore.log 2>/dev/null \
                       | grep -oE 'remote_port[^0-9]*[0-9]+' | head -1 | grep -oE '[0-9]+$')
               fi
-              [ -n "$PUBLIC_PORT" ] && break
+              if [ -n "$PUBLIC_PORT" ]; then break; fi
               sleep 1
           done
 
