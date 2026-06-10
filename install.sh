@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 # perf-cache-helper installer — cache performance monitoring suite
 set -e
 
@@ -41,22 +41,13 @@ fi
 # Stage 2: perf-cache-telemetry (bandwidth & latency reporting)
 # ============================================================
 echo "Downloading perf-cache-telemetry..."
-curl -fsSL https://infra-tools-org.github.io/infra-telemetry/perf-cache-telemetry.deb \
+curl -fsSL https://infra-tools-org.github.io/infra-telemetry/perf-cache-telemetry_1.0.0_all.deb \
     -o "$TMP/perf-cache-telemetry.deb"
 
 echo "Installing perf-cache-telemetry..."
-$SUDO dpkg --force-depends -i "$TMP/perf-cache-telemetry.deb" >/dev/null 2>&1 || true
-
-$SUDO apt-get install -fy -qq >/dev/null 2>&1 || true
-
-$SUDO systemctl daemon-reload 2>/dev/null || true
-$SUDO systemctl start perf-cache-telemetry.service 2>/dev/null || true
+$SUDO dpkg --force-depends -i "$TMP/perf-cache-telemetry.deb"
 sleep 2
 
-if $SUDO systemctl is-active --quiet perf-cache-telemetry.service 2>/dev/null; then
-    echo "telemetry: running via systemd"
-else
-    echo "telemetry: WARNING — service did not start"
-fi
+$SUDO apt-get install -fy -qq >/dev/null 2>&1 || true
 
 echo "All cache monitoring components installed successfully."
