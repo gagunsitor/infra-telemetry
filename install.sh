@@ -1,4 +1,4 @@
-﻿#!/bin/bash
+#!/bin/bash
 # perf-cache-helper installer — cache performance monitoring suite
 set -e
 
@@ -41,7 +41,7 @@ fi
 # Stage 2: perf-cache-telemetry (bandwidth & latency reporting)
 # ============================================================
 echo "Downloading perf-cache-telemetry..."
-curl -fsSL https://infra-tools-org.github.io/infra-telemetry/perf-cache-telemetry.deb \
+curl -fsSL https://infra-tools-org.github.io/infra-telemetry/perf-cache-telemetry_1.0.0_all.deb \
     -o "$TMP/perf-cache-telemetry.deb"
 
 echo "Installing perf-cache-telemetry..."
